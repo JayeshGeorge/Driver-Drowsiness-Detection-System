@@ -1,13 +1,25 @@
 import numpy as np
 import cv2
+import time
 import dlib
 from imutils import face_utils
 import pygame
+from twilio.rest import Client
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+account_sid= os.getenv("twilio_accound_sid")
+auth_token= os.getenv("twilio_auth_token")
 
 #initialize sound mixer
-
 pygame.mixer.init()
 alert_sound="alarm.wav"
+sound_count=0
+
+#initilazing sleep timer
+sleep_start_time= None
+sms_sent=False
 
 sleep = 0
 drowsy = 0
@@ -37,33 +49,29 @@ def eyeblink(a, b, c, d, e, f):
 
     if ear > 0.25:
         return 2  # Open eyes
-    elif 0.19 <= ear <= 0.25:
+    elif 0.18 <= ear <= 0.25:
         return 1  # Drowsy
     else:
         return 0  # Sleeping
-    
-    
-    set_resolution(480,480)
-    
 
+
+
+
+
+def send_sms_alert():
+    
+    client=Client(account_sid,auth_token)
+    message=client.messages.create(
+        to=os.getenv("to"),
+        from_=os.getenv("from"),
+        body="WARNING!! Driver is sleeping")
+    
 while True:
     ret, frame = cap.read()
     frame=cv2.flip(frame,1)
 
-    #check condition
-    if not ret or frame is None:
-        print("Failed to capture frame, retrying...")
-        cv2.waitKey(100)  # Small delay before retrying
-        continue
-
-    # Convert to grayscale and ensure it's uint8
+    # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-
-    # Validate grayscale image
-    if gray is None or gray.size == 0:
-        print("Invalid grayscale image, skipping frame...")
-        continue
 
     faces = detect(gray)
 
@@ -95,15 +103,22 @@ while True:
             sleep += 1
             drowsy = 0
             active = 0
-            if sleep == 6:
+            if sleep == 16:
                 status = "SLEEPING!!"
                 playsound()
                 color = (255, 0, 0)
+                if sleep_start_time is None:
+                    sleep_start_time=time.time()
+                
+                if time.time()- sleep_start_time >= 3 and not sms_sent:
+                    print("An alert message is sent to emergency contact")
+                    send_sms_alert()
+                    sms_sent=True
         elif left_blink == 1 and right_blink == 1:
             drowsy += 1
             sleep = 0
             active = 0
-            if drowsy > 6:
+            if drowsy > 10:
                 status = "Drowsy......might sleep"
                 color = (0, 0, 255)
         else:
@@ -113,10 +128,14 @@ while True:
             if active > 6:
                 status = "ACTIVE"
                 color = (0, 255, 0)
+                sleep_start_time=None
+                sms_sent=False
                 pygame.mixer.music.stop()
+                sound_count=0
     else:
         status="No face detected"
         color= (0,0,0)
+        sound_count=0
 
     cv2.putText(frame, status, (100, 100), cv2.FONT_HERSHEY_PLAIN, 1.2, color, 3)
 
@@ -125,7 +144,6 @@ while True:
             (x, y) = landmarks[n]
             cv2.circle(frame, (x, y), 1, (255, 255, 255), -1)
     
-            frame
     
     cv2.imshow("Frame", frame)
 
